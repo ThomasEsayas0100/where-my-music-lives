@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Fetch Spotify audio features for all tracks in city-based 'Sound of' playlists.
+Fetch audio features for all tracks in city-based 'Sound of' playlists.
 
 Reads city_playlists.csv (from parse_playlists.py), hits the Spotify Web API to
-pull every track in each playlist, fetches audio features in batches of 100,
-and writes one JSON file per playlist into data/playlists/.
+pull every track in each playlist, fetches audio features via ReccoBeats API
+(in batches of 40), and writes one JSON file per playlist into data/playlists/.
 
 Designed for resilience:
   - Client Credentials OAuth (no user login needed for public playlists)
@@ -67,8 +67,9 @@ MIN_REQUEST_INTERVAL = 0.35
 # Back-off ceiling when we get 429s
 MAX_BACKOFF = 120
 
-# Audio-features endpoint accepts up to 100 IDs at once
-AUDIO_FEATURES_BATCH_SIZE = 100
+# ReccoBeats audio-features endpoint accepts up to 40 IDs at once
+AUDIO_FEATURES_BATCH_SIZE = 40
+RECCOBEATS_API_BASE = "https://api.reccobeats.com/v1"
 # Playlist tracks endpoint returns at most 100 per page
 PLAYLIST_TRACKS_PAGE_SIZE = 100
 
@@ -256,8 +257,9 @@ class RateLimitedClient:
                 backoff = min(backoff * 2, MAX_BACKOFF)
                 continue
 
-            if resp.status_code == 404:
-                # Playlist removed / track unavailable — return empty
+            if resp.status_code in (403, 404):
+                # 403: endpoint restricted (e.g. audio-features since late 2024)
+                # 404: playlist removed / track unavailable
                 return {}
 
             # Unexpected status
@@ -332,21 +334,37 @@ def fetch_audio_features_batch(
     client: RateLimitedClient, track_ids: list[str]
 ) -> dict[str, dict | None]:
     """
-    Fetch audio features for up to 100 track IDs.
+    Fetch audio features for up to 40 track IDs via ReccoBeats API.
+    ReccoBeats accepts Spotify track IDs directly and requires no auth.
     Returns {track_id: features_dict_or_None}.
     """
     result: dict[str, dict | None] = {}
     if not track_ids:
         return result
 
-    url = f"{SPOTIFY_API_BASE}/audio-features"
+    url = f"{RECCOBEATS_API_BASE}/audio-features"
     params = {"ids": ",".join(track_ids)}
-    data = client.get(url, params=params)
 
-    for feat in data.get("audio_features", []):
-        if feat and feat.get("id"):
-            result[feat["id"]] = feat
-        # Spotify returns null entries for unavailable tracks
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        if resp.status_code != 200:
+            print(f"  [ReccoBeats HTTP {resp.status_code}] — skipping batch")
+            for tid in track_ids:
+                result[tid] = None
+            return result
+        data = resp.json()
+    except requests.RequestException as exc:
+        print(f"  [ReccoBeats error] {exc} — skipping batch")
+        for tid in track_ids:
+            result[tid] = None
+        return result
+
+    for item in data.get("content", []):
+        # Extract Spotify track ID from href (e.g. "https://open.spotify.com/track/<id>")
+        href = item.get("href", "")
+        spotify_id = href.split("/")[-1] if href else None
+        if spotify_id:
+            result[spotify_id] = item
 
     # Mark any requested IDs that got no response
     for tid in track_ids:
@@ -385,7 +403,7 @@ def process_playlist(
             "tracks": [],
         }
 
-    # -- audio features in batches of 100 --
+    # -- audio features in batches of 40 (via ReccoBeats) --
     track_ids = [t["id"] for t in tracks]
     all_features: dict[str, dict | None] = {}
 
@@ -416,11 +434,11 @@ def process_playlist(
 
         if feat:
             features_found += 1
-            # Keep only the meaningful audio feature fields
+            # Keep only the meaningful audio feature fields (from ReccoBeats)
             for key in (
                 "danceability", "energy", "key", "loudness", "mode",
                 "speechiness", "acousticness", "instrumentalness",
-                "liveness", "valence", "tempo", "time_signature",
+                "liveness", "valence", "tempo",
             ):
                 record[key] = feat.get(key)
         else:
