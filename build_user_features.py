@@ -152,22 +152,22 @@ def search_spotify_track(client: RateLimitedClient, artist: str, track: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# Main pipeline
+# Core pipeline (importable)
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--user", default="th_ma_", help="Last.fm username")
-    parser.add_argument("--limit", type=int, default=1000, help="Number of recent scrobbles")
-    args = parser.parse_args()
+def build_user_feature_vector(user: str, limit: int = 1000) -> dict:
+    """
+    Build a complete user feature vector from Last.fm scrobbles.
 
+    Returns dict with keys: user, total_tracks, unique_tracks,
+    tracks_with_features, audio_features, genre_vector, artist_vector.
+    """
     DATA_DIR.mkdir(exist_ok=True)
     CACHE_DIR.mkdir(exist_ok=True)
 
     # 1. Fetch scrobbles
-    print(f"Fetching last {args.limit} scrobbles for '{args.user}'...")
-    unique_tracks = fetch_recent_tracks(args.user, args.limit)
+    print(f"Fetching last {limit} scrobbles for '{user}'...")
+    unique_tracks = fetch_recent_tracks(user, limit)
     total_scrobbles = sum(t["play_count"] for t in unique_tracks)
     print(f"  {total_scrobbles} scrobbles -> {len(unique_tracks)} unique tracks")
 
@@ -281,8 +281,8 @@ def main() -> None:
         for a, c in sorted(artist_counts.items(), key=lambda x: -x[1])
     }
 
-    result = {
-        "user": args.user,
+    return {
+        "user": user,
         "total_tracks": total_scrobbles,
         "unique_tracks": len(unique_tracks),
         "tracks_with_features": tracks_with_features,
@@ -291,20 +291,33 @@ def main() -> None:
         "artist_vector": artist_vector,
     }
 
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--user", default="th_ma_", help="Last.fm username")
+    parser.add_argument("--limit", type=int, default=1000, help="Number of recent scrobbles")
+    args = parser.parse_args()
+
+    result = build_user_feature_vector(args.user, args.limit)
     OUTPUT_FILE.write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
     # Summary
+    gv, av = result["genre_vector"], result["artist_vector"]
     print(f"\n{'='*60}")
-    print(f"User: {args.user}")
-    print(f"Scrobbles: {total_scrobbles}")
-    print(f"Unique tracks: {len(unique_tracks)}")
-    print(f"Spotify matches: {len(track_spotify)}")
-    print(f"Audio features: {features_found}")
-    print(f"Unique genres: {len(genre_vector)}")
-    print(f"Unique artists: {len(artist_vector)}")
-    top5 = sorted(genre_vector.items(), key=lambda x: -x[1])[:5]
+    print(f"User: {result['user']}")
+    print(f"Scrobbles: {result['total_tracks']}")
+    print(f"Unique tracks: {result['unique_tracks']}")
+    print(f"Tracks with features: {result['tracks_with_features']}")
+    print(f"Unique genres: {len(gv)}")
+    print(f"Unique artists: {len(av)}")
+    top5 = sorted(gv.items(), key=lambda x: -x[1])[:5]
     print(f"Top genres: {top5}")
-    top5a = sorted(artist_vector.items(), key=lambda x: -x[1])[:5]
+    top5a = sorted(av.items(), key=lambda x: -x[1])[:5]
     print(f"Top artists: {top5a}")
     print(f"Output: {OUTPUT_FILE}")
     print(f"{'='*60}")
