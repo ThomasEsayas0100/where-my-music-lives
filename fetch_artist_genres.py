@@ -15,7 +15,9 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from threading import Lock
 
 import requests
 
@@ -39,6 +41,9 @@ ARTIST_BATCH_SIZE = 50
 LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY", "")
 LASTFM_BASE = "https://ws.audioscrobbler.com/2.0/"
 
+# Reusable session for connection pooling
+SESSION = requests.Session()
+
 # Genre whitelist — load once
 GENRE_WHITELIST_PATH = Path("/Users/thomasesayas/Documents/lastfm_wrapped/backend/genres.json")
 
@@ -57,14 +62,35 @@ GENRE_WHITELIST = load_genre_whitelist()
 
 
 # ---------------------------------------------------------------------------
-# Last.fm tag fetching (with in-memory caching)
+# Last.fm tag fetching (with persistent disk caching)
 # ---------------------------------------------------------------------------
 
-# In-memory caches: avoid re-hitting Last.fm for the same artist/track
-_lastfm_artist_tag_cache: dict[str, list[str]] = {}  # artist_lower -> [genres]
-_lastfm_track_tag_cache: dict[str, list[str]] = {}   # "artist\ttrack" -> [genres]
+# Persistent disk cache paths
+LFM_TRACK_CACHE_PATH = CACHE_DIR / "lastfm_track_tags.json"
+LFM_ARTIST_CACHE_PATH = CACHE_DIR / "lastfm_artist_tags.json"
+_cache_lock = Lock()
+
+
+def _load_disk_cache(path: Path) -> dict:
+    try:
+        return json.loads(path.read_text()) if path.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_disk_cache(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    tmp.rename(path)
+
+
+# Load caches from disk on import
+_lastfm_artist_tag_cache: dict[str, list[str]] = _load_disk_cache(LFM_ARTIST_CACHE_PATH)
+_lastfm_track_tag_cache: dict[str, list[str]] = _load_disk_cache(LFM_TRACK_CACHE_PATH)
 _lastfm_cache_stats = {"artist_hits": 0, "artist_misses": 0,
                        "track_hits": 0, "track_misses": 0}
+_cache_dirty = False  # track if cache needs saving
 
 
 def _lastfm_get(method: str, params: dict) -> dict:
@@ -75,7 +101,7 @@ def _lastfm_get(method: str, params: dict) -> dict:
         "format": "json",
         **params,
     }
-    r = requests.get(LASTFM_BASE, params=payload, timeout=12)
+    r = SESSION.get(LASTFM_BASE, params=payload, timeout=12)
     r.raise_for_status()
     return r.json()
 
@@ -91,6 +117,7 @@ def _filter_tags_to_genres(tags: list[dict]) -> list[str]:
 
 def fetch_lastfm_track_tags(artist: str, track: str) -> list[str]:
     """Fetch top tags for a track from Last.fm, filtered to genre whitelist. Cached."""
+    global _cache_dirty
     cache_key = f"{artist.lower()}\t{track.lower()}"
     if cache_key in _lastfm_track_tag_cache:
         _lastfm_cache_stats["track_hits"] += 1
@@ -103,12 +130,15 @@ def fetch_lastfm_track_tags(artist: str, track: str) -> list[str]:
     except Exception:
         result = []
 
-    _lastfm_track_tag_cache[cache_key] = result
+    with _cache_lock:
+        _lastfm_track_tag_cache[cache_key] = result
+        _cache_dirty = True
     return result
 
 
 def fetch_lastfm_artist_tags(artist: str) -> list[str]:
     """Fetch top tags for an artist from Last.fm, filtered to genre whitelist. Cached."""
+    global _cache_dirty
     cache_key = artist.lower()
     if cache_key in _lastfm_artist_tag_cache:
         _lastfm_cache_stats["artist_hits"] += 1
@@ -121,13 +151,87 @@ def fetch_lastfm_artist_tags(artist: str) -> list[str]:
     except Exception:
         result = []
 
-    _lastfm_artist_tag_cache[cache_key] = result
+    with _cache_lock:
+        _lastfm_artist_tag_cache[cache_key] = result
+        _cache_dirty = True
     return result
 
 
 def get_lastfm_cache_stats() -> dict:
     """Return current cache hit/miss stats."""
     return dict(_lastfm_cache_stats)
+
+
+def save_lastfm_caches() -> None:
+    """Persist in-memory caches to disk."""
+    global _cache_dirty
+    if not _cache_dirty:
+        return
+    with _cache_lock:
+        _save_disk_cache(LFM_TRACK_CACHE_PATH, _lastfm_track_tag_cache)
+        _save_disk_cache(LFM_ARTIST_CACHE_PATH, _lastfm_artist_tag_cache)
+        _cache_dirty = False
+    stats = get_lastfm_cache_stats()
+    print(f"  💾 Saved tag caches (track: {len(_lastfm_track_tag_cache)}, artist: {len(_lastfm_artist_tag_cache)})")
+    print(f"     hits: track={stats['track_hits']}, artist={stats['artist_hits']}  "
+          f"misses: track={stats['track_misses']}, artist={stats['artist_misses']}")
+
+
+def prefetch_lastfm_tags_concurrent(
+    tracks: list[dict],
+    workers: int = 10,
+) -> None:
+    """
+    Concurrently fetch Last.fm tags for a list of tracks.
+    Each track dict must have 'artist' and 'track' keys.
+    Deduplicates artist-level calls automatically.
+    """
+    # Identify what's missing from cache
+    missing_tracks = []
+    missing_artists: set[str] = set()
+
+    for t in tracks:
+        tk = f"{t['artist'].lower()}\t{t['track'].lower()}"
+        if tk not in _lastfm_track_tag_cache:
+            missing_tracks.append(t)
+        ak = t["artist"].lower()
+        if ak not in _lastfm_artist_tag_cache:
+            missing_artists.add(t["artist"])
+
+    total_calls = len(missing_tracks) + len(missing_artists)
+    if total_calls == 0:
+        print(f"  ⚡ All {len(tracks)} tracks already cached")
+        return
+
+    print(f"  🏷️  Fetching tags: {len(missing_tracks)} tracks + {len(missing_artists)} artists "
+          f"({total_calls} API calls, {workers} workers)...")
+
+    def _fetch_track(t: dict) -> None:
+        fetch_lastfm_track_tags(t["artist"], t["track"])
+
+    def _fetch_artist(artist: str) -> None:
+        fetch_lastfm_artist_tags(artist)
+
+    # Fetch all concurrently
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = []
+        for t in missing_tracks:
+            futures.append(executor.submit(_fetch_track, t))
+        for a in missing_artists:
+            futures.append(executor.submit(_fetch_artist, a))
+
+        done = 0
+        for f in as_completed(futures):
+            done += 1
+            if done % 50 == 0 or done == len(futures):
+                print(f"     ...{done}/{len(futures)} done")
+            try:
+                f.result()
+            except Exception:
+                pass  # errors already handled inside fetch functions
+
+    # Save to disk after batch
+    save_lastfm_caches()
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +463,7 @@ def run_batch(client: RateLimitedClient) -> None:
                 track_tags = fetch_lastfm_track_tags(artist_name, track["name"])
                 artist_tags = fetch_lastfm_artist_tags(artist_name)
                 lastfm_genres = list(dict.fromkeys(track_tags + artist_tags))
-                time.sleep(0.25)  # be gentle with Last.fm
+                time.sleep(0.05)  # be gentle with Last.fm
 
             track["genres"] = merge_genres(spotify_genres, lastfm_genres)
             modified = True
