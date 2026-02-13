@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your City — Where Your Music Lives</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <div class="page" style="align-items:flex-start;">
+    <div class="bg-glow bg-glow--1"></div>
+    <div class="bg-glow bg-glow--2"></div>
+
+    <div class="results" id="results">
+      <div class="results__header">
+        <p class="results__greeting">your music lives in</p>
+        <h1 class="results__city" id="top-city">—</h1>
+        <p class="results__country" id="top-country"></p>
+      </div>
+
+      <!-- Top genres -->
+      <div class="profile-card">
+        <p class="profile-card__title">Your top genres</p>
+        <div class="tag-list" id="genre-tags"></div>
+      </div>
+
+      <!-- Top artists -->
+      <div class="profile-card">
+        <p class="profile-card__title">Your top artists</p>
+        <div class="tag-list" id="artist-tags"></div>
+      </div>
+
+      <!-- City matches -->
+      <div class="profile-card">
+        <p class="profile-card__title">Top city matches</p>
+        <ul class="city-list" id="city-list"></ul>
+      </div>
+
+      <div style="text-align:center;">
+        <a href="/" class="back-link">← Start over</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const raw = sessionStorage.getItem('wmml_results');
+    if (!raw) {
+      window.location.href = '/';
+    } else {
+      const data = JSON.parse(raw);
+      const user = data.user;
+      const matches = data.matches || [];
+
+      // Top city
+      if (matches.length > 0) {
+        const top = matches[0];
+        document.getElementById('top-city').textContent = top.city || top[0] || '—';
+        document.getElementById('top-country').textContent = top.country || top[1] || '';
+      }
+
+      // Top genres
+      const genreContainer = document.getElementById('genre-tags');
+      const genres = Object.entries(user.genre_vector || {}).slice(0, 10);
+      genres.forEach(([g]) => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = g;
+        genreContainer.appendChild(tag);
+      });
+
+      // Top artists
+      const artistContainer = document.getElementById('artist-tags');
+      const artists = Object.entries(user.artist_vector || {}).slice(0, 8);
+      artists.forEach(([a]) => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = a;
+        artistContainer.appendChild(tag);
+      });
+
+      // City list
+      const cityList = document.getElementById('city-list');
+      matches.slice(0, 10).forEach((m, i) => {
+        const li = document.createElement('li');
+        li.className = 'city-item';
+        const city = m.city || m[0] || '';
+        const country = m.country || m[1] || '';
+        const score = m.combined || m[2] || 0;
+        li.innerHTML = `
+          <span class="city-rank">${i + 1}</span>
+          <span class="city-name">${city}</span>
+          <span class="city-country">${country}</span>
+          <span class="city-score">${(score * 100).toFixed(1)}%</span>
+        `;
+        cityList.appendChild(li);
+      });
+    }
+  </script>
+</body>
+
+</html>

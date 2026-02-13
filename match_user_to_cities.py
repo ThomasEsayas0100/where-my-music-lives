@@ -110,31 +110,30 @@ def top_shared(user_vec: dict[str, float], city_vec: dict[str, float],
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--audio-weight", type=float, default=0.3)
-    parser.add_argument("--genre-weight", type=float, default=0.4)
-    parser.add_argument("--artist-weight", type=float, default=0.3)
-    parser.add_argument("--top", type=int, default=20, help="Number of results to print")
-    args = parser.parse_args()
-
+def match_user_to_cities(
+    audio_weight: float = 0.3,
+    genre_weight: float = 0.4,
+    artist_weight: float = 0.3,
+) -> list[dict]:
+    """
+    Match the current user profile to cities.
+    Returns a list of dicts sorted by score, each with:
+    city, country, score (combined), audio_similarity, genre_similarity,
+    artist_similarity, top_shared_genres, top_shared_artists, rank.
+    """
     # Normalize weights
-    total_w = args.audio_weight + args.genre_weight + args.artist_weight
-    aw = args.audio_weight / total_w
-    gw = args.genre_weight / total_w
-    rw = args.artist_weight / total_w
+    total_w = audio_weight + genre_weight + artist_weight
+    aw = audio_weight / total_w
+    gw = genre_weight / total_w
+    rw = artist_weight / total_w
 
     user = json.loads(USER_FILE.read_text())
     cities = json.loads(CITIES_FILE.read_text())
 
-    # Precompute z-score stats from the city distribution
     stats = compute_audio_stats(cities)
-
     user_gv = user["genre_vector"]
     user_av = user.get("artist_vector", {})
 
-    # Score each city
     results = []
     for city in cities:
         a_sim = audio_similarity(user["audio_features"], city["audio_features"], stats)
@@ -148,7 +147,7 @@ def main() -> None:
         results.append({
             "city": city["city"],
             "country": city["country"],
-            "score": round(score, 4),
+            "combined": round(score, 4),
             "audio_similarity": round(a_sim, 4),
             "genre_similarity": round(g_sim, 4),
             "artist_similarity": round(r_sim, 4),
@@ -156,17 +155,32 @@ def main() -> None:
             "top_shared_artists": shared_artists,
         })
 
-    results.sort(key=lambda x: -x["score"])
-
-    # Add rank
+    results.sort(key=lambda x: -x["combined"])
     for i, r in enumerate(results, 1):
         r["rank"] = i
 
-    # Write full results
+    # Save full results
     OUTPUT_FILE.write_text(json.dumps(results, indent=2, ensure_ascii=False))
+    return results
 
-    # Print top N
-    print(f"Matching user '{user['user']}' to {len(cities)} cities")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--audio-weight", type=float, default=0.3)
+    parser.add_argument("--genre-weight", type=float, default=0.4)
+    parser.add_argument("--artist-weight", type=float, default=0.3)
+    parser.add_argument("--top", type=int, default=20, help="Number of results to print")
+    args = parser.parse_args()
+
+    results = match_user_to_cities(args.audio_weight, args.genre_weight, args.artist_weight)
+
+    aw = args.audio_weight / (args.audio_weight + args.genre_weight + args.artist_weight)
+    gw = args.genre_weight / (args.audio_weight + args.genre_weight + args.artist_weight)
+    rw = args.artist_weight / (args.audio_weight + args.genre_weight + args.artist_weight)
+
+    user = json.loads(USER_FILE.read_text())
+    print(f"Matching user '{user['user']}' to {len(results)} cities")
     print(f"Weights: audio={aw:.0%}, genre={gw:.0%}, artist={rw:.0%}")
     print(f"{'='*90}")
     print(f"{'Rank':>4}  {'City':<25} {'CC':>2}  {'Score':>6}  {'Audio':>6}  {'Genre':>6}  {'Artist':>6}  Shared")
@@ -178,7 +192,7 @@ def main() -> None:
         shared_str = shared_g
         if shared_a:
             shared_str += f" | {shared_a}"
-        print(f"{r['rank']:>4}  {r['city']:<25} {r['country']:>2}  {r['score']:>6.4f}  "
+        print(f"{r['rank']:>4}  {r['city']:<25} {r['country']:>2}  {r['combined']:>6.4f}  "
               f"{r['audio_similarity']:>6.4f}  {r['genre_similarity']:>6.4f}  "
               f"{r['artist_similarity']:>6.4f}  {shared_str}")
 

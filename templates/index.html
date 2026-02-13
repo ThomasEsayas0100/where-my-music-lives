@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Where Your Music Lives</title>
+  <meta name="description" content="Discover which city matches your music taste">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+  <div class="page">
+    <div class="bg-glow bg-glow--1"></div>
+    <div class="bg-glow bg-glow--2"></div>
+
+    <main class="hero">
+      <div class="hero__subtitle">discover</div>
+      <h1 class="hero__title">
+        where your music<br>
+        <span class="hero__accent">lives</span>
+      </h1>
+      <p class="hero__desc">
+        We analyze your listening history and match you<br class="hide-mobile">
+        to the city that sounds like you.
+      </p>
+
+      <div class="auth-buttons">
+        <a href="/auth/spotify" class="btn btn--spotify">
+          <svg class="btn__icon" viewBox="0 0 24 24" fill="currentColor">
+            <path
+              d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z" />
+          </svg>
+          Enter via Spotify<span class="btn__asterisk">*</span>
+        </a>
+
+        <!-- Last.fm: button morphs into username input -->
+        <div class="lastfm-wrapper" id="lastfm-wrapper">
+          <button class="btn btn--lastfm" id="lastfm-btn" type="button">
+            <svg class="btn__icon" viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.42 0 3.189 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.044 5.718-3.793 0-2.227-1.265-3.381-3.63-3.931l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.594 0-.934.742-1.484 1.952-1.484 1.32 0 2.035.495 2.145 1.677l2.749-.33C22.478 5.974 20.883 4.867 18.052 4.867c-2.694 0-4.673 1.291-4.673 3.876 0 1.842.907 3.024 3.16 3.574l1.869.413c1.403.33 1.869.88 1.869 1.677 0 .99-.907 1.402-2.611 1.402-2.529 0-3.573-1.32-4.178-3.134l-.907-2.749c-1.155-3.545-3.024-4.81-6.737-4.81C2.392 5.116 0 7.51 0 12.032 0 16.39 2.311 18.695 5.993 18.695c2.97 0 4.591-1.402 4.591-1.402v-.083z" />
+            </svg>
+            Enter via Last.fm
+          </button>
+
+          <form class="lastfm-input" id="lastfm-input" action="/auth/lastfm" method="GET">
+            <input type="text" name="user" id="lastfm-user" class="lastfm-input__field" placeholder="Last.fm username"
+              autocomplete="off" required>
+            <button type="submit" class="lastfm-input__go" aria-label="Go">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <p class="footnote">
+        <span class="footnote__star">*</span> Spotify is limited to your 50 most recent tracks
+      </p>
+
+      {% if error %}
+      <div class="error-toast">{{ error }}</div>
+      {% endif %}
+    </main>
+  </div>
+
+  <script>
+    const wrapper = document.getElementById('lastfm-wrapper');
+    const btn = document.getElementById('lastfm-btn');
+    const inputForm = document.getElementById('lastfm-input');
+    const inputField = document.getElementById('lastfm-user');
+
+    btn.addEventListener('click', () => {
+      wrapper.classList.add('expanded');
+      setTimeout(() => inputField.focus(), 350);
+    });
+
+    // Close if clicking outside
+    document.addEventListener('click', (e) => {
+      if (wrapper.classList.contains('expanded') && !wrapper.contains(e.target)) {
+        wrapper.classList.remove('expanded');
+      }
+    });
+  </script>
+</body>
+
+</html>

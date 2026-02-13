@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analyzing… — Where Your Music Lives</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&display=swap');
+
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+      background: #0a0a0a;
+      color: #c8c8c8;
+      font-family: 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    /* CRT scanline overlay */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(0deg,
+          transparent,
+          transparent 2px,
+          rgba(255, 255, 255, 0.015) 2px,
+          rgba(255, 255, 255, 0.015) 4px);
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* Vignette */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center,
+          transparent 50%,
+          rgba(0, 0, 0, 0.6) 100%);
+      pointer-events: none;
+      z-index: 99;
+    }
+
+    .globe-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      user-select: none;
+      z-index: 1;
+      position: relative;
+    }
+
+    /* ── Ambient glow behind globe ── */
+    .globe-glow {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 320px;
+      height: 320px;
+      transform: translate(-50%, -55%);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(196, 160, 255, 0.06) 0%, transparent 70%);
+      animation: glow-breathe 6s ease-in-out infinite;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 4s ease 3s;
+    }
+
+    @keyframes glow-breathe {
+
+      0%,
+      100% {
+        transform: translate(-50%, -55%) scale(1);
+        opacity: 1;
+      }
+
+      50% {
+        transform: translate(-50%, -55%) scale(1.15);
+        opacity: 0.6;
+      }
+    }
+
+    /* ── Staggered entrance elements ── */
+    .globe-title {
+      font-size: 14px;
+      font-weight: 300;
+      letter-spacing: 0.45em;
+      text-transform: uppercase;
+      color: #585858;
+      margin-bottom: 24px;
+      text-align: center;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 2s ease-out, transform 2.5s ease-out;
+    }
+
+    .globe-title.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .globe-wrap {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 3s ease-out 0.8s, transform 3.5s ease-out 0.8s;
+    }
+
+    .globe-wrap.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    #globe {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      line-height: 1.05;
+      color: #c8c8c8;
+      white-space: pre;
+      letter-spacing: 0.05em;
+      text-align: center;
+      text-shadow: 0 0 8px rgba(200, 200, 200, 0.04);
+      cursor: grab;
+    }
+
+    #globe.dragging {
+      cursor: grabbing;
+    }
+
+    .status-area {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      text-align: center;
+      height: 56px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 2s ease-out 2.5s, transform 2.5s ease-out 2.5s;
+    }
+
+    .status-area.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .status-text {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.15em;
+      color: #585858;
+      min-height: 1.2em;
+      overflow: hidden;
+    }
+
+    .status-text .cursor-blink {
+      display: inline-block;
+      width: 1px;
+      height: 1em;
+      background: #585858;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 0.9s step-end infinite;
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0;
+      }
+    }
+
+    .dots {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .dot {
+      width: 3px;
+      height: 3px;
+      background: #585858;
+      border-radius: 50%;
+      animation: dot-pulse 1.8s ease-in-out infinite;
+    }
+
+    .dot:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    .dot:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+
+    .dot:nth-child(4) {
+      animation-delay: 0.6s;
+    }
+
+    .dot:nth-child(5) {
+      animation-delay: 0.8s;
+    }
+
+    @keyframes dot-pulse {
+
+      0%,
+      80%,
+      100% {
+        opacity: 0.2;
+        transform: scale(1);
+      }
+
+      40% {
+        opacity: 1;
+        transform: scale(1.5);
+      }
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      #globe {
+        font-size: 7px;
+        line-height: 1;
+      }
+
+      .globe-title {
+        font-size: 11px;
+        letter-spacing: 0.3em;
+      }
+
+      .globe-glow {
+        width: 200px;
+        height: 200px;
+      }
+    }
+
+    @media (min-width: 601px) and (max-width: 1000px) {
+      #globe {
+        font-size: 10px;
+        line-height: 1;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="globe-container" id="container">
+    <div class="globe-glow" id="glow"></div>
+    <div class="globe-title" id="title">where&ensp;your&ensp;music&ensp;lives</div>
+    <div class="globe-wrap" id="globe-wrap">
+      <pre id="globe"></pre>
+    </div>
+    <div class="status-area" id="status-area">
+      <div class="dots">
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+        <div class="dot"></div>
+      </div>
+      <div class="status-text" id="status"><span class="cursor-blink"></span></div>
+    </div>
+  </div>
+
+  <script>
+    // ── Equirectangular world map (360×180, Natural Earth 110m) ───────
+    const MAP_IMG_SRC = 'data:image/png;base64,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';
+
+    const MAP_W = 360;
+    const MAP_H = 180;
+    let landData = null;
+
+    function loadWorldMap() {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = MAP_W;
+          canvas.height = MAP_H;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, MAP_W, MAP_H);
+          const pixels = ctx.getImageData(0, 0, MAP_W, MAP_H).data;
+
+          landData = new Uint8Array(MAP_W * MAP_H);
+          for (let i = 0; i < MAP_W * MAP_H; i++) {
+            landData[i] = pixels[i * 4] > 128 ? 1 : 0;
+          }
+          resolve();
+        };
+        img.src = MAP_IMG_SRC;
+      });
+    }
+
+    function isLandCached(lat, lon) {
+      if (!landData) return false;
+      lon = ((lon % 360) + 540) % 360 - 180;
+      const px = Math.floor((lon + 180) / 360 * MAP_W);
+      const py = Math.floor((90 - lat) / 180 * MAP_H);
+      const x = Math.max(0, Math.min(MAP_W - 1, px));
+      const y = Math.max(0, Math.min(MAP_H - 1, py));
+      return landData[y * MAP_W + x] === 1;
+    }
+
+    // ── Shading ───────────────────────────────────────────────────────
+    const SHADE = ' .\u00b7:-=+*#%@';
+    const lx = 0.35, ly = -0.55, lz = 0.75;
+    const lMag = Math.sqrt(lx * lx + ly * ly + lz * lz);
+    const LIGHT = [lx / lMag, ly / lMag, lz / lMag];
+    const CHAR_ASPECT = 0.57;
+    const DEG = 180 / Math.PI;
+    const GLOBE_H = 44;
+    const GLOBE_W = Math.round(GLOBE_H / CHAR_ASPECT);
+
+    const maxSI = SHADE.length - 1;
+    const landBase = Math.max(1, Math.floor(maxSI * 0.5));
+    const landRange = maxSI - landBase;
+    const oceanRange = Math.max(1, landBase - 1);
+
+    function renderGlobe(rotation) {
+      const radius = GLOBE_H / 2.1;
+      const cx = GLOBE_W / 2;
+      const cy = GLOBE_H / 2;
+      const cosR = Math.cos(rotation);
+      const sinR = Math.sin(rotation);
+      const lines = [];
+
+      for (let row = 0; row < GLOBE_H; row++) {
+        let line = '';
+        for (let col = 0; col < GLOBE_W; col++) {
+          const sx = (col - cx) * CHAR_ASPECT;
+          const sy = (row - cy);
+          const z2 = radius * radius - sx * sx - sy * sy;
+
+          if (z2 < 0) { line += ' '; continue; }
+
+          const sz = Math.sqrt(z2);
+          const invR = 1 / radius;
+          const nx = sx * invR, ny = sy * invR, nz = sz * invR;
+          const intensity = Math.max(0, nx * LIGHT[0] + ny * LIGHT[1] + nz * LIGHT[2]);
+          const xRot = sx * cosR - sz * sinR;
+          const zRot = sx * sinR + sz * cosR;
+          const lat = Math.asin(Math.max(-1, Math.min(1, -sy / radius))) * DEG;
+          const lon = Math.atan2(xRot, zRot) * DEG;
+          const onLand = isLandCached(lat, lon);
+
+          let si;
+          if (onLand) {
+            si = landBase + Math.floor(intensity * landRange);
+            si = Math.max(landBase, Math.min(maxSI, si));
+          } else {
+            si = 1 + Math.floor(intensity * oceanRange);
+            si = Math.max(1, Math.min(landBase - 1, si));
+          }
+
+          const edge = sz / radius;
+          if (edge < 0.2) si = Math.max(0, si - 3);
+          else if (edge < 0.35) si = Math.max(0, si - 1);
+
+          line += SHADE[si];
+        }
+        lines.push(line);
+      }
+      return lines.join('\n');
+    }
+
+    // ── Typewriter status messages ─────────────────────────────────────
+    const MESSAGES = [
+      'Fetching your tracks',
+      'Resolving Spotify tracks',
+      'Building audio profile',
+      'Analyzing audio features',
+      'Computing genre vectors',
+      'Matching cities',
+      'Ranking destinations',
+    ];
+
+    let currentMsg = 0;
+    const statusEl = document.getElementById('status');
+    let typewriterTimeout = null;
+
+    function typewrite(text, callback) {
+      statusEl.innerHTML = '<span class="cursor-blink"></span>';
+      let i = 0;
+      function tick() {
+        if (i < text.length) {
+          // Insert character before the cursor
+          const cursor = statusEl.querySelector('.cursor-blink');
+          const span = document.createTextNode(text[i]);
+          statusEl.insertBefore(span, cursor);
+          i++;
+          typewriterTimeout = setTimeout(tick, 35 + Math.random() * 30);
+        } else if (callback) {
+          callback();
+        }
+      }
+      tick();
+    }
+
+    function eraseAndType(text) {
+      const currentText = statusEl.textContent;
+      const cursor = statusEl.querySelector('.cursor-blink');
+      let charNodes = [];
+
+      // Collect text nodes
+      statusEl.childNodes.forEach(n => {
+        if (n.nodeType === Node.TEXT_NODE) charNodes.push(n);
+      });
+
+      let idx = charNodes.length - 1;
+
+      function eraseOne() {
+        if (idx >= 0) {
+          charNodes[idx].remove();
+          idx--;
+          typewriterTimeout = setTimeout(eraseOne, 20);
+        } else {
+          setTimeout(() => typewrite(text), 200);
+        }
+      }
+      eraseOne();
+    }
+
+    function cycleStatus() {
+      currentMsg = (currentMsg + 1) % MESSAGES.length;
+      eraseAndType(MESSAGES[currentMsg]);
+    }
+
+    let statusInterval;
+
+    // ── Drag interaction ──────────────────────────────────────────────
+    const globeEl = document.getElementById('globe');
+    let isDragging = false;
+    let dragStartX = 0;
+    let rotationAtDragStart = 0;
+    let dragVelocity = 0;
+    const velocitySamples = [];
+    const VELOCITY_WINDOW = 80;
+    const DRAG_SENSITIVITY = 0.008;
+    const FLICK_FRICTION = 1.2;
+
+    function onPointerDown(e) {
+      isDragging = true;
+      dragStartX = e.clientX;
+      rotationAtDragStart = rotation;
+      dragVelocity = 0;
+      velocitySamples.length = 0;
+      velocitySamples.push({ t: performance.now(), x: e.clientX });
+      globeEl.classList.add('dragging');
+      e.preventDefault();
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging) return;
+      const now = performance.now();
+      velocitySamples.push({ t: now, x: e.clientX });
+      while (velocitySamples.length > 1 && now - velocitySamples[0].t > VELOCITY_WINDOW) {
+        velocitySamples.shift();
+      }
+      rotation = rotationAtDragStart + (e.clientX - dragStartX) * DRAG_SENSITIVITY;
+      e.preventDefault();
+    }
+
+    function onPointerUp(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      globeEl.classList.remove('dragging');
+      if (velocitySamples.length >= 2) {
+        const first = velocitySamples[0];
+        const last = velocitySamples[velocitySamples.length - 1];
+        const dt = (last.t - first.t) / 1000;
+        if (dt > 0.005) {
+          dragVelocity = ((last.x - first.x) * DRAG_SENSITIVITY) / dt;
+          dragVelocity = Math.max(-6, Math.min(6, dragVelocity));
+        }
+      }
+      velocitySamples.length = 0;
+      e.preventDefault();
+    }
+
+    globeEl.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    globeEl.addEventListener('selectstart', (e) => e.preventDefault());
+
+    // ── Animation loop ─────────────────────────────────────────────────
+    let rotation = 0;
+    let lastTime = 0;
+    const TARGET_SPEED = 0.3;
+    const SPIN_UP_RATE = 0.08;
+    let autoSpeed = 0;
+
+    function animate(time) {
+      const dt = lastTime ? (time - lastTime) / 1000 : 0;
+      lastTime = time;
+
+      if (!isDragging) {
+        if (Math.abs(dragVelocity) > 0.002) {
+          rotation += dragVelocity * dt;
+          dragVelocity *= Math.exp(-FLICK_FRICTION * dt);
+        } else {
+          dragVelocity = 0;
+        }
+        if (Math.abs(dragVelocity) < TARGET_SPEED * 0.5) {
+          autoSpeed = Math.min(TARGET_SPEED, autoSpeed + SPIN_UP_RATE * dt);
+          rotation += autoSpeed * dt;
+        } else {
+          autoSpeed = 0;
+        }
+      }
+      rotation = ((rotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      globeEl.textContent = renderGlobe(rotation);
+      requestAnimationFrame(animate);
+    }
+
+    // ── Staggered reveal ──────────────────────────────────────────────
+    const titleEl = document.getElementById('title');
+    const globeWrap = document.getElementById('globe-wrap');
+    const statusArea = document.getElementById('status-area');
+    const glowEl = document.getElementById('glow');
+
+    loadWorldMap().then(() => {
+      requestAnimationFrame(animate);
+
+      // Stage 1: title fades in
+      setTimeout(() => titleEl.classList.add('visible'), 300);
+
+      // Stage 2: globe rises up
+      setTimeout(() => {
+        globeWrap.classList.add('visible');
+        glowEl.style.opacity = '1';
+      }, 1200);
+
+      // Stage 3: status area + first typewriter message
+      setTimeout(() => {
+        statusArea.classList.add('visible');
+        typewrite(MESSAGES[0], () => {
+          statusInterval = setInterval(cycleStatus, 4500);
+        });
+      }, 2800);
+    });
+
+    // ── Pipeline API call ─────────────────────────────────────────────
+    fetch('/api/run-pipeline', { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        clearInterval(statusInterval);
+        if (data.error) {
+          if (typewriterTimeout) clearTimeout(typewriterTimeout);
+          statusEl.innerHTML = 'Error: ' + data.error;
+          return;
+        }
+        sessionStorage.setItem('wmml_results', JSON.stringify(data));
+        // Brief pause so user sees the globe a bit before redirect
+        setTimeout(() => { window.location.href = '/results'; }, 800);
+      })
+      .catch(err => {
+        clearInterval(statusInterval);
+        if (typewriterTimeout) clearTimeout(typewriterTimeout);
+        statusEl.innerHTML = 'Something went wrong. Please try again.';
+      });
+  </script>
+
+</body>
+
+</html>
